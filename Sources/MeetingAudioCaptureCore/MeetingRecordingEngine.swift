@@ -30,18 +30,26 @@ public final class MeetingRecordingEngine: NSObject {
         super.init()
     }
 
-    public func start(mode: RecordingMode, microphoneDeviceID: String?, sessionTitle: String? = nil) async throws {
+    public func start(
+        mode: RecordingMode,
+        microphoneDeviceID: String?,
+        sessionTitle: String? = nil,
+        recordingSettings: RecordingSettings? = nil
+    ) async throws {
         guard case .idle = state else {
             return
         }
 
         let startedAt = Date()
-        var writerSettings = settings
+        let activeSettings = recordingSettings ?? settings
+        settings = activeSettings
+
+        var writerSettings = activeSettings
         writerSettings.sessionTitle = sessionTitle
         let writer = SegmentedAudioFileWriter(settings: writerSettings, mode: mode, startedAt: startedAt)
         let mixer = TimelineAudioMixer(
-            outputSampleRate: settings.sampleRate,
-            latencySeconds: settings.mixerLatencySeconds
+            outputSampleRate: activeSettings.sampleRate,
+            latencySeconds: activeSettings.mixerLatencySeconds
         )
 
         await captureQueueAsync {

@@ -20,22 +20,79 @@ enum MeetingAudioCaptureApp {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let engine = MeetingRecordingEngine()
+    private let outputDirectoryStore = OutputDirectoryStore()
 
     private var selectedMode: RecordingMode = .onlineMeeting
     private var selectedMicrophoneID: String?
     private var recorderState: RecorderState = .idle
     private var latestFiles: [URL] = []
+    private var selectedOutputDirectory = OutputDirectoryStore.downloadsDirectory
     private var recordingTitle = ""
     private var statusRefreshTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureStatusItem()
+        loadOutputDirectory()
         configureEngineCallbacks()
         rebuildMenu()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         stopStatusRefreshTimer()
+    }
+
+    private func loadOutputDirectory() {
+        let resolution = outputDirectoryStore.loadOutputDirectory()
+        selectedOutputDirectory = resolution.outputDirectory
+
+        guard resolution.didFallback else {
+            return
+        }
+
+        outputDirectoryStore.clearOutputDirectory()
+        DispatchQueue.main.async { [weak self] in
+            self?.showOutputDirectoryFallbackAlert(attemptedDirectory: resolution.attemptedDirectory)
+        }
+    }
+
+    private func recordingSettingsForCurrentSelection() -> RecordingSettings {
+        let outputDirectory = resolvedOutputDirectoryForRecording()
+        return RecordingSettings(outputDirectory: outputDirectory)
+    }
+
+    private func resolvedOutputDirectoryForRecording() -> URL {
+        guard outputDirectoryStore.isUsableDirectory(selectedOutputDirectory) else {
+            selectedOutputDirectory = OutputDirectoryStore.downloadsDirectory
+            outputDirectoryStore.clearOutputDirectory()
+            rebuildMenu()
+            showOutputDirectoryFallbackAlert(attemptedDirectory: nil)
+            return selectedOutputDirectory
+        }
+
+        return selectedOutputDirectory
+    }
+
+    private func showOutputDirectoryFallbackAlert(attemptedDirectory: URL?) {
+        let attemptedPath = attemptedDirectory.map { "\n元の保存先: \($0.path)" } ?? ""
+        showAlert(
+            title: "保存先をDownloadsに戻しました",
+            message: "保存先が存在しないか、書き込めません。\n現在の保存先: \(OutputDirectoryStore.downloadsDirectory.path)\(attemptedPath)"
+        )
+    }
+
+    private func abbreviatedPath(for directory: URL) -> String {
+        let path = directory.standardizedFileURL.path
+        let homePath = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+
+        if path == homePath {
+            return "~"
+        }
+
+        if path.hasPrefix(homePath + "/") {
+            return "~" + String(path.dropFirst(homePath.count))
+        }
+
+        return path
     }
 
     private func configureStatusItem() {
@@ -169,12 +226,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(clearTitleItem)
         }
 
+        menu.addItem(NSMenuItem.separator())
+        let outputDirectorySummary = NSMenuItem(title: outputDirectoryMenuTitle, action: nil, keyEquivalent: "")
+        outputDirectorySummary.isEnabled = false
+        outputDirectorySummary.toolTip = selectedOutputDirectory.path
+        menu.addItem(outputDirectorySummary)
+
+        let selectOutputDirectoryItem = NSMenuItem(title: "保存先を選択...", action: #selector(selectOutputDirectory), keyEquivalent: "s")
+        selectOutputDirectoryItem.isEnabled = !isRecording
+        menu.addItem(selectOutputDirectoryItem)
+
+        menu.addItem(NSMenuItem(title: "保存先を開く", action: #selector(openOutputDirectory), keyEquivalent: "o"))
+
         let hint = NSMenuItem(title: "ASR品質重視ならイヤホン推奨", action: nil, keyEquivalent: "")
         hint.isEnabled = false
         menu.addItem(hint)
         menu.addItem(NSMenuItem.separator())
 
-        menu.addItem(NSMenuItem(title: "Downloadsを開く", action: #selector(openDownloads), keyEquivalent: "o"))
         if !latestFiles.isEmpty {
             menu.addItem(NSMenuItem(title: "最後の保存ファイルを表示", action: #selector(revealLatestFile), keyEquivalent: "f"))
         }
@@ -192,6 +260,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return true
         }
         return false
+    }
+
+    private var outputDirectoryMenuTitle: String {
+        "保存先: \(abbreviatedPath(for: selectedOutputDirectory))"
     }
 
     private var recordingTitleMenuTitle: String {
@@ -226,10 +298,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        let recordingSettings = recordingSettingsForCurrentSelection()
+
         Task {
             do {
                 try await ensurePermissions(for: selectedMode)
-                try await engine.start(mode: selectedMode, microphoneDeviceID: selectedMicrophoneID, sessionTitle: recordingTitle)
+                try await engine.start(
+                    mode: selectedMode,
+                    microphoneDeviceID: selectedMicrophoneID,
+                    sessionTitle: recordingTitle,
+                    recordingSettings: recordingSettings
+                )
             } catch {
                 showAlert(title: "録音を開始できません", message: error.localizedDescription)
             }
@@ -274,10 +353,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildMenu()
     }
 
-    @objc private func openDownloads() {
-        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Downloads")
-        NSWorkspace.shared.open(downloads)
+    @objc private func selectOutputDirectory() {
+        let panel = NSOpenPanel()
+        panel.title = "保存先を選択"
+        panel.message = "録音ファイルを保存するフォルダを選択してください。"
+        panel.prompt = "選択"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = selectedOutputDirectory
+
+        guard panel.runModal() == .OK, let directory = panel.url?.standardizedFileURL else {
+            return
+        }
+
+        guard outputDirectoryStore.isUsableDirectory(directory) else {
+            showAlert(title: "保存先を変更できません", message: "選択したフォルダに書き込めません。\n\(directory.path)")
+            return
+        }
+
+        selectedOutputDirectory = directory
+        outputDirectoryStore.saveOutputDirectory(directory)
+        rebuildMenu()
+    }
+
+    @objc private func openOutputDirectory() {
+        NSWorkspace.shared.open(selectedOutputDirectory)
     }
 
     @objc private func revealLatestFile() {
