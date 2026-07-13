@@ -130,7 +130,7 @@ public final class MeetingRecordingEngine: NSObject {
                         do {
                             try writer.write(output)
                         } catch {
-                            throw RecorderError.fileWriteFailed(error.recorderDiagnosticMessage)
+                            throw RecorderError.classified(error, fallback: RecorderError.fileWriteFailed)
                         }
                     }
                 }
@@ -281,7 +281,7 @@ public final class MeetingRecordingEngine: NSObject {
             self.captureSession?.stopRunning()
             self.captureSession = nil
             self.stream = nil
-            self.writer?.close()
+            try? self.writer?.close()
             self.writer = nil
             self.mixer = nil
             self.activeMode = nil
@@ -304,12 +304,16 @@ public final class MeetingRecordingEngine: NSObject {
                     do {
                         try writer.write(output)
                     } catch {
-                        closeError = closeError ?? RecorderError.fileWriteFailed(error.recorderDiagnosticMessage)
+                        closeError = closeError ?? RecorderError.classified(error, fallback: RecorderError.fileWriteFailed)
                     }
                 }
             }
 
-            self.writer?.close()
+            do {
+                try self.writer?.close()
+            } catch {
+                closeError = closeError ?? RecorderError.classified(error, fallback: RecorderError.fileWriteFailed)
+            }
             let urls = self.writer?.completedFileURLs ?? []
             self.writer = nil
             self.mixer = nil

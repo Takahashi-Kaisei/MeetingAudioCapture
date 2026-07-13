@@ -32,11 +32,33 @@ public enum AudioSourceKind: String, Sendable {
     case microphone
 }
 
+public enum AudioOutputFormat: String, CaseIterable, Sendable {
+    case m4a
+    case wav
+    case mp3
+
+    public var displayName: String {
+        switch self {
+        case .m4a:
+            return "M4A (AAC)"
+        case .wav:
+            return "WAV (PCM)"
+        case .mp3:
+            return "MP3"
+        }
+    }
+
+    public var fileExtension: String {
+        rawValue
+    }
+}
+
 public struct RecordingSettings: Sendable {
     public var outputDirectory: URL
     public var sampleRate: Double
     public var channelCount: Int
     public var bitRate: Int
+    public var outputFormat: AudioOutputFormat
     public var segmentDurationSeconds: TimeInterval
     public var mixerLatencySeconds: TimeInterval
     public var sessionTitle: String?
@@ -46,6 +68,7 @@ public struct RecordingSettings: Sendable {
         sampleRate: Double = 48_000,
         channelCount: Int = 2,
         bitRate: Int = 192_000,
+        outputFormat: AudioOutputFormat = .m4a,
         segmentDurationSeconds: TimeInterval = 30 * 60,
         mixerLatencySeconds: TimeInterval = 0.35,
         sessionTitle: String? = nil
@@ -54,6 +77,7 @@ public struct RecordingSettings: Sendable {
         self.sampleRate = sampleRate
         self.channelCount = channelCount
         self.bitRate = bitRate
+        self.outputFormat = outputFormat
         self.segmentDurationSeconds = segmentDurationSeconds
         self.mixerLatencySeconds = mixerLatencySeconds
         self.sessionTitle = sessionTitle
@@ -98,6 +122,8 @@ public enum RecorderError: LocalizedError, Equatable, Sendable {
     case unsupportedAudioFormat(String)
     case writerNotStarted
     case invalidBuffer(String)
+    case mp3EncoderUnavailable
+    case mp3EncodingFailed(String)
     case stopFailed(String)
 
     public var errorDescription: String? {
@@ -124,6 +150,10 @@ public enum RecorderError: LocalizedError, Equatable, Sendable {
             return "音声ファイルの書き込みを開始できていません。"
         case .invalidBuffer(let message):
             return message
+        case .mp3EncoderUnavailable:
+            return "MP3変換に必要な ffmpeg が見つかりません。"
+        case .mp3EncodingFailed(let message):
+            return "MP3変換に失敗しました。\n\(message)"
         case .stopFailed(let message):
             return "録音停止処理で問題が発生しました。\n\(message)"
         }
@@ -143,6 +173,8 @@ public enum RecorderError: LocalizedError, Equatable, Sendable {
             return "ファイル保存に失敗しました"
         case .audioConversionFailed, .unsupportedAudioFormat, .invalidBuffer:
             return "音声処理に失敗しました"
+        case .mp3EncoderUnavailable, .mp3EncodingFailed:
+            return "MP3変換に失敗しました"
         case .writerNotStarted:
             return "録音ファイルを作成できません"
         case .stopFailed:
@@ -164,6 +196,10 @@ public enum RecorderError: LocalizedError, Equatable, Sendable {
             return "保存先の空き容量と書き込み権限を確認し、保存先を変更してから再試行してください。途中まで保存できたファイルは残します。"
         case .audioConversionFailed, .unsupportedAudioFormat, .invalidBuffer:
             return "音声デバイスや会議アプリの入出力設定を確認し、録音をやり直してください。"
+        case .mp3EncoderUnavailable:
+            return "Homebrewなどで ffmpeg をインストールするか、保存形式をM4A/WAVに変更して再試行してください。"
+        case .mp3EncodingFailed:
+            return "一時M4Aファイルが残っている可能性があります。保存先を確認し、保存形式をM4A/WAVに変更して再試行してください。"
         case .writerNotStarted:
             return "保存先を変更してから再試行してください。"
         case .stopFailed:

@@ -21,18 +21,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let engine = MeetingRecordingEngine()
     private let outputDirectoryStore = OutputDirectoryStore()
+    private let audioOutputFormatStore = AudioOutputFormatStore()
 
     private var selectedMode: RecordingMode = .onlineMeeting
     private var selectedMicrophoneID: String?
     private var recorderState: RecorderState = .idle
     private var latestFiles: [URL] = []
     private var selectedOutputDirectory = OutputDirectoryStore.downloadsDirectory
+    private var selectedOutputFormat: AudioOutputFormat = .m4a
     private var recordingTitle = ""
     private var statusRefreshTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureStatusItem()
         loadOutputDirectory()
+        loadOutputFormat()
         configureEngineCallbacks()
         rebuildMenu()
     }
@@ -55,9 +58,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func loadOutputFormat() {
+        selectedOutputFormat = audioOutputFormatStore.loadOutputFormat()
+    }
+
     private func recordingSettingsForCurrentSelection() -> RecordingSettings {
         let outputDirectory = resolvedOutputDirectoryForRecording()
-        return RecordingSettings(outputDirectory: outputDirectory)
+        return RecordingSettings(outputDirectory: outputDirectory, outputFormat: selectedOutputFormat)
     }
 
     private func resolvedOutputDirectoryForRecording() -> URL {
@@ -248,6 +255,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem(title: "保存先を開く", action: #selector(openOutputDirectory), keyEquivalent: "o"))
 
+        let outputFormatMenuItem = NSMenuItem(title: "保存形式", action: nil, keyEquivalent: "")
+        let outputFormatMenu = NSMenu()
+        for outputFormat in AudioOutputFormat.allCases {
+            let item = NSMenuItem(title: outputFormat.displayName, action: #selector(selectOutputFormat(_:)), keyEquivalent: "")
+            item.representedObject = outputFormat.rawValue
+            item.state = selectedOutputFormat == outputFormat ? .on : .off
+            item.isEnabled = !isRecording
+            outputFormatMenu.addItem(item)
+        }
+        outputFormatMenuItem.submenu = outputFormatMenu
+        menu.addItem(outputFormatMenuItem)
+
         let hint = NSMenuItem(title: "ASR品質重視ならイヤホン推奨", action: nil, keyEquivalent: "")
         hint.isEnabled = false
         menu.addItem(hint)
@@ -405,6 +424,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func selectMicrophone(_ sender: NSMenuItem) {
         selectedMicrophoneID = sender.representedObject as? String
+        rebuildMenu()
+    }
+
+    @objc private func selectOutputFormat(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let outputFormat = AudioOutputFormat(rawValue: rawValue) else {
+            return
+        }
+        selectedOutputFormat = outputFormat
+        audioOutputFormatStore.saveOutputFormat(outputFormat)
         rebuildMenu()
     }
 

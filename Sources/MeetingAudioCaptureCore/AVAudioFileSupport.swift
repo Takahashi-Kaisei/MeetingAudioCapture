@@ -2,6 +2,40 @@ import AVFAudio
 import AudioToolbox
 import Foundation
 
+extension AudioOutputFormat {
+    var writesViaIntermediateM4A: Bool {
+        self == .mp3
+    }
+
+    func avAudioFileSettings(sampleRate: Double, bitRate: Int) -> [String: Any] {
+        switch self {
+        case .m4a:
+            return [
+                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                AVSampleRateKey: sampleRate,
+                AVNumberOfChannelsKey: 2,
+                AVEncoderBitRateKey: bitRate
+            ]
+        case .wav:
+            return [
+                AVFormatIDKey: Int(kAudioFormatLinearPCM),
+                AVSampleRateKey: sampleRate,
+                AVNumberOfChannelsKey: 2,
+                AVLinearPCMBitDepthKey: 32,
+                AVLinearPCMIsFloatKey: true,
+                AVLinearPCMIsBigEndianKey: false
+            ]
+        case .mp3:
+            return [
+                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                AVSampleRateKey: sampleRate,
+                AVNumberOfChannelsKey: 2,
+                AVEncoderBitRateKey: bitRate
+            ]
+        }
+    }
+}
+
 extension StereoPCMBuffer {
     func makeAVAudioPCMBuffer() throws -> AVAudioPCMBuffer {
         guard let format = AVAudioFormat(
@@ -37,12 +71,15 @@ public final class SegmentedAudioFileWriter {
     private let outputDirectory: URL
     private let sampleRate: Double
     private let bitRate: Int
+    private let outputFormat: AudioOutputFormat
     private let segmentFrameLimit: Int64
     private let fileManager: FileManager
     private let filenameGenerator: RecordingFilenameGenerator
+    private let mp3Encoder: MP3Encoding
 
     private var currentFile: AVAudioFile?
-    private var currentFileURL: URL?
+    private var currentWriteURL: URL?
+    private var currentFinalURL: URL?
     private var currentSegmentFrames: Int64 = 0
     private var segmentIndex = 1
 
@@ -55,13 +92,39 @@ public final class SegmentedAudioFileWriter {
         self.outputDirectory = settings.outputDirectory
         self.sampleRate = settings.sampleRate
         self.bitRate = settings.bitRate
+        self.outputFormat = settings.outputFormat
         self.segmentFrameLimit = max(1, Int64((settings.segmentDurationSeconds * settings.sampleRate).rounded()))
         self.fileManager = fileManager
+        self.mp3Encoder = ExternalMP3Encoder(fileManager: fileManager)
 
         self.filenameGenerator = RecordingFilenameGenerator(
             startedAt: startedAt,
             mode: mode,
-            sessionTitle: settings.sessionTitle
+            sessionTitle: settings.sessionTitle,
+            fileExtension: settings.outputFormat.fileExtension
+        )
+    }
+
+    init(
+        settings: RecordingSettings,
+        mode: RecordingMode,
+        startedAt: Date = Date(),
+        fileManager: FileManager = .default,
+        mp3Encoder: MP3Encoding
+    ) {
+        self.outputDirectory = settings.outputDirectory
+        self.sampleRate = settings.sampleRate
+        self.bitRate = settings.bitRate
+        self.outputFormat = settings.outputFormat
+        self.segmentFrameLimit = max(1, Int64((settings.segmentDurationSeconds * settings.sampleRate).rounded()))
+        self.fileManager = fileManager
+        self.mp3Encoder = mp3Encoder
+
+        self.filenameGenerator = RecordingFilenameGenerator(
+            startedAt: startedAt,
+            mode: mode,
+            sessionTitle: settings.sessionTitle,
+            fileExtension: settings.outputFormat.fileExtension
         )
     }
 
@@ -86,50 +149,63 @@ public final class SegmentedAudioFileWriter {
             offsetFrame += framesToWrite
 
             if currentSegmentFrames >= segmentFrameLimit {
-                closeCurrentSegment()
+                try closeCurrentSegment()
             }
         }
     }
 
-    public func close() {
-        closeCurrentSegment()
+    public func close() throws {
+        try closeCurrentSegment()
     }
 
     private func startNextSegment() throws {
         try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 
         let fileName = filenameGenerator.fileName(segmentIndex: segmentIndex)
-        let fileURL = outputDirectory.appendingPathComponent(fileName)
-        let settings: [String: Any] = [
-            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: sampleRate,
-            AVNumberOfChannelsKey: 2,
-            AVEncoderBitRateKey: bitRate
-        ]
+        let finalURL = outputDirectory.appendingPathComponent(fileName)
+        let writeURL = outputFormat.writesViaIntermediateM4A
+            ? finalURL.deletingPathExtension().appendingPathExtension("tmp.m4a")
+            : finalURL
+        let settings = outputFormat.avAudioFileSettings(sampleRate: sampleRate, bitRate: bitRate)
+
+        if outputFormat.writesViaIntermediateM4A {
+            try? fileManager.removeItem(at: writeURL)
+        }
 
         currentFile = try AVAudioFile(
-            forWriting: fileURL,
+            forWriting: writeURL,
             settings: settings,
             commonFormat: .pcmFormatFloat32,
             interleaved: false
         )
-        currentFileURL = fileURL
+        currentWriteURL = writeURL
+        currentFinalURL = finalURL
         currentSegmentFrames = 0
         segmentIndex += 1
     }
 
-    private func closeCurrentSegment() {
+    private func closeCurrentSegment() throws {
         guard currentFile != nil else {
             return
         }
 
         currentFile?.close()
-        if let currentFileURL {
-            completedFileURLs.append(currentFileURL)
+        defer {
+            currentFile = nil
+            currentWriteURL = nil
+            currentFinalURL = nil
+            currentSegmentFrames = 0
         }
 
-        currentFile = nil
-        currentFileURL = nil
-        currentSegmentFrames = 0
+        guard let writeURL = currentWriteURL, let finalURL = currentFinalURL else {
+            return
+        }
+
+        if outputFormat.writesViaIntermediateM4A {
+            try mp3Encoder.encodeM4A(sourceURL: writeURL, destinationURL: finalURL)
+            try? fileManager.removeItem(at: writeURL)
+        }
+
+        completedFileURLs.append(finalURL)
     }
 }

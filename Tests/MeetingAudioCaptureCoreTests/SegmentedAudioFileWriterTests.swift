@@ -1,3 +1,4 @@
+import AVFAudio
 import Foundation
 import Testing
 @testable import MeetingAudioCaptureCore
@@ -32,11 +33,128 @@ struct SegmentedAudioFileWriterTests {
         }
 
         try writer.write(StereoPCMBuffer(sampleRate: 48_000, interleavedSamples: samples))
-        writer.close()
+        try writer.close()
 
         #expect(writer.completedFileURLs.count == 3)
         for fileURL in writer.completedFileURLs {
             #expect(FileManager.default.fileExists(atPath: fileURL.path))
         }
     }
+
+    @Test
+    func writerCreatesReadableWAVFileWhenConfigured() throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("MeetingAudioCaptureTests-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let settings = RecordingSettings(
+            outputDirectory: directory,
+            sampleRate: 48_000,
+            bitRate: 192_000,
+            outputFormat: .wav,
+            segmentDurationSeconds: 10
+        )
+        let writer = SegmentedAudioFileWriter(
+            settings: settings,
+            mode: .inPerson,
+            startedAt: Date(timeIntervalSince1970: 0)
+        )
+
+        let samples = Array(repeating: Float(0.25), count: 1_024 * 2)
+        try writer.write(StereoPCMBuffer(sampleRate: 48_000, interleavedSamples: samples))
+        try writer.close()
+
+        #expect(writer.completedFileURLs.count == 1)
+        let fileURL = try #require(writer.completedFileURLs.first)
+        #expect(fileURL.pathExtension == "wav")
+        #expect(FileManager.default.fileExists(atPath: fileURL.path))
+
+        let file = try AVAudioFile(forReading: fileURL)
+        #expect(file.fileFormat.sampleRate == 48_000)
+        #expect(file.fileFormat.channelCount == 2)
+        #expect(file.length == 1_024)
+    }
+
+    @Test
+    func writerCreatesMP3FileViaInjectedEncoderWhenConfigured() throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("MeetingAudioCaptureTests-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let settings = RecordingSettings(
+            outputDirectory: directory,
+            sampleRate: 48_000,
+            bitRate: 192_000,
+            outputFormat: .mp3,
+            segmentDurationSeconds: 10
+        )
+        let writer = SegmentedAudioFileWriter(
+            settings: settings,
+            mode: .onlineMeeting,
+            startedAt: Date(timeIntervalSince1970: 0),
+            mp3Encoder: InspectingMP3Encoder()
+        )
+
+        let samples = Array(repeating: Float(0.2), count: 512 * 2)
+        try writer.write(StereoPCMBuffer(sampleRate: 48_000, interleavedSamples: samples))
+        try writer.close()
+
+        #expect(writer.completedFileURLs.count == 1)
+        let fileURL = try #require(writer.completedFileURLs.first)
+        #expect(fileURL.pathExtension == "mp3")
+        #expect(FileManager.default.fileExists(atPath: fileURL.path))
+        #expect(FileManager.default.fileExists(atPath: fileURL.deletingPathExtension().appendingPathExtension("tmp.m4a").path) == false)
+    }
+
+    @Test
+    func writerSurfacesMP3EncoderFailure() throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("MeetingAudioCaptureTests-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let settings = RecordingSettings(
+            outputDirectory: directory,
+            sampleRate: 48_000,
+            bitRate: 192_000,
+            outputFormat: .mp3,
+            segmentDurationSeconds: 10
+        )
+        let writer = SegmentedAudioFileWriter(
+            settings: settings,
+            mode: .onlineMeeting,
+            startedAt: Date(timeIntervalSince1970: 0),
+            mp3Encoder: FailingMP3Encoder()
+        )
+
+        let samples = Array(repeating: Float(0.2), count: 512 * 2)
+        try writer.write(StereoPCMBuffer(sampleRate: 48_000, interleavedSamples: samples))
+
+        #expect(throws: RecorderError.mp3EncoderUnavailable) {
+            try writer.close()
+        }
+        #expect(writer.completedFileURLs.isEmpty)
+    }
+
+    private struct InspectingMP3Encoder: MP3Encoding {
+        func encodeM4A(sourceURL: URL, destinationURL: URL) throws {
+            #expect(sourceURL.pathExtension == "m4a")
+            #expect(sourceURL.lastPathComponent.hasSuffix("tmp.m4a"))
+            let sourceFile = try AVAudioFile(forReading: sourceURL)
+            #expect(sourceFile.fileFormat.channelCount == 2)
+            try Data(contentsOf: sourceURL).write(to: destinationURL)
+        }
+    }
+
+    private struct FailingMP3Encoder: MP3Encoding {
+        func encodeM4A(sourceURL: URL, destinationURL: URL) throws {
+            throw RecorderError.mp3EncoderUnavailable
+        }
+    }
+
 }
