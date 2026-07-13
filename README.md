@@ -43,7 +43,7 @@ MP3保存は一時M4Aを `ffmpeg -i input.m4a -ar 44100 -ab 128k output.mp3` 相
 
 ## エラー対応
 
-想定している録音失敗ケースと復旧挙動は [docs/error-handling.md](docs/error-handling.md) にまとめています。例外処理やデバッグ時の基準として参照してください。
+完了済みの機能追加メモは [docs/feature-notes.md](docs/feature-notes.md) にまとめています。想定している録音失敗ケースと復旧挙動は [docs/error-handling.md](docs/error-handling.md) を参照してください。
 
 ## テスト
 
@@ -51,4 +51,4 @@ MP3保存は一時M4Aを `ffmpeg -i input.m4a -ar 44100 -ab 128k output.mp3` 相
 CLANG_MODULE_CACHE_PATH=.build/ModuleCache swift test
 ```
 
-Codex側ではビルド、単体テスト、M4A/WAV/MP3分割保存と結合のテストまでを確認します。実際のZoom/Discord/Google Meet/Teamsや対面録音で相手音声と自分の声が保存されるかは、ユーザー実機で確認してください。
+自動テストでは、ファイル名、経過時間、設定保存、ミキサー、M4A/WAV/MP3出力、分割保存、結合、エラー文言を確認します。実機受け入れテストは完了済みです。

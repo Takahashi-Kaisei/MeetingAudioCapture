@@ -1,25 +1,27 @@
+# Development Install Notes
 
-開発時の受け入れテストの仕方。
+ローカルビルドを `/Applications` 配下のアプリとして動かし、macOS のプライバシー権限まわりを安定させるためのメモです。実機受け入れテストは完了済みのため、このファイルではインストールとTCCリセット手順だけを残します。
 
-1. プロジェクトルートに移動。
-```
-cd /MeetingAudioCapture
-```
+## 現在のビルドをインストールする
 
-2. 起動。メニューバーに `REC` が表示されることを確認。
-```
-open /Applications/MeetingAudioCapture.app
-```
+プロジェクトルートで実行します。
 
-3. 新機能開発後は以下のコマンドでビルドとAppの更新を行う。
-```
+```sh
 Scripts/install-app.sh
 ```
 
-- 権限を何回も求められるが変更できない場合、過去のキャッシュをクリアする。resetできたら3へ。
-```bash
+このスクリプトは `.app` を作成し、`/Applications/MeetingAudioCapture.app` にコピーして起動します。
+
+## macOS権限をリセットする
+
+権限を許可しても反映されない、または何度も権限要求が出る場合は、関連するTCCエントリをリセットしてから再インストールします。
+
+```sh
 tccutil reset Microphone app.codex.meeting-audio-capture
 tccutil reset ScreenCapture app.codex.meeting-audio-capture
 tccutil reset Microphone app.codex.meeting-recorder
 tccutil reset ScreenCapture app.codex.meeting-recorder
+Scripts/install-app.sh
 ```
+
+`meeting-recorder` のエントリは、MVP開発中に使っていた古いBundle IDの後片付け用に残しています。

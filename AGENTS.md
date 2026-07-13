@@ -7,10 +7,10 @@ This is a SwiftPM macOS menu-bar app for meeting audio capture.
 - `Package.swift`: package, products, targets, framework links, and test settings.
 - `Sources/MeetingAudioCaptureApp/`: AppKit status-bar UI and user interactions.
 - `Sources/MeetingAudioCaptureCore/`: recording engine, permissions, audio conversion, mixing, and segmented file writing.
-- `Tests/MeetingAudioCaptureCoreTests/`: Swift Testing tests for audio chunks, timeline mixing, and segmented writing.
+- `Tests/MeetingAudioCaptureCoreTests/`: Swift Testing tests for audio chunks, timeline mixing, output formats, and segment merging.
 - `Resources/Info.plist`: app bundle metadata and microphone usage description.
 - `Scripts/package-app.sh`: release build and `.app` bundle creation.
-- `PLAN.md`: roadmap for upcoming feature work.
+- `docs/feature-notes.md`: completed feature notes and maintenance constraints.
 
 ## Build, Test, and Development Commands
 
@@ -33,7 +33,7 @@ Use Swift defaults: 4-space indentation, clear type names, and small focused typ
 
 ## Testing Guidelines
 
-Tests use Swift Testing. Add tests for pure logic whenever possible, especially file naming, mixing, segmentation, and error handling. Real Zoom/Discord/Meet/Teams capture depends on macOS permissions and hardware, so treat it as manual acceptance testing and document results in PR notes.
+Tests use Swift Testing. Add tests for pure logic whenever possible, especially file naming, mixing, output formats, segmentation, merging, settings stores, and error handling. Live meeting capture depends on macOS permissions and hardware, so keep automated completion independent of real-device recording.
 
 ## Commit & Pull Request Guidelines
 
