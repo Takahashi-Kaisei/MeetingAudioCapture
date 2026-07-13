@@ -1,4 +1,4 @@
-# Meeting Recorder
+# MeetingAudioCapture
 
 Mac向けのメニューバー常駐型ミーティング録音アプリです。Zoom、Discord、Google Meet(Firefox)、Teamsなどのオンライン会議ではシステム音声とマイク音声を1本のM4Aへ保存します。対面モードではマイクのみを保存します。
 
@@ -20,7 +20,7 @@ CLANG_MODULE_CACHE_PATH=.build/ModuleCache swift build
 
 ```sh
 Scripts/package-app.sh
-open .build/release/MeetingRecorder.app
+open .build/release/MeetingAudioCapture.app
 ```
 
 ## 使い方

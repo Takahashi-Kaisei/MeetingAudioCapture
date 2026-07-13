@@ -1,5 +1,5 @@
 import Testing
-@testable import MeetingRecorderCore
+@testable import MeetingAudioCaptureCore
 
 @Suite
 struct TimelineAudioMixerTests {

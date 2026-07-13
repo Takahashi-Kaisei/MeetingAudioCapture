@@ -5,9 +5,9 @@
 This is a SwiftPM macOS menu-bar app for meeting audio capture.
 
 - `Package.swift`: package, products, targets, framework links, and test settings.
-- `Sources/MeetingRecorderApp/`: AppKit status-bar UI and user interactions.
-- `Sources/MeetingRecorderCore/`: recording engine, permissions, audio conversion, mixing, and segmented file writing.
-- `Tests/MeetingRecorderCoreTests/`: Swift Testing tests for audio chunks, timeline mixing, and segmented writing.
+- `Sources/MeetingAudioCaptureApp/`: AppKit status-bar UI and user interactions.
+- `Sources/MeetingAudioCaptureCore/`: recording engine, permissions, audio conversion, mixing, and segmented file writing.
+- `Tests/MeetingAudioCaptureCoreTests/`: Swift Testing tests for audio chunks, timeline mixing, and segmented writing.
 - `Resources/Info.plist`: app bundle metadata and microphone usage description.
 - `Scripts/package-app.sh`: release build and `.app` bundle creation.
 - `PLAN.md`: roadmap for upcoming feature work.
@@ -20,7 +20,7 @@ Use a project-local Clang module cache in Codex or restricted environments:
 CLANG_MODULE_CACHE_PATH=.build/ModuleCache swift build
 CLANG_MODULE_CACHE_PATH=.build/ModuleCache swift test
 Scripts/package-app.sh
-open .build/release/MeetingRecorder.app
+open .build/release/MeetingAudioCapture.app
 ```
 
 - `swift build`: compiles the app and core library.

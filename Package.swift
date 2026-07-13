@@ -3,23 +3,23 @@
 import PackageDescription
 
 let package = Package(
-    name: "MeetingRecorder",
+    name: "MeetingAudioCapture",
     platforms: [
         .macOS(.v15)
     ],
     products: [
         .library(
-            name: "MeetingRecorderCore",
-            targets: ["MeetingRecorderCore"]
+            name: "MeetingAudioCaptureCore",
+            targets: ["MeetingAudioCaptureCore"]
         ),
         .executable(
-            name: "MeetingRecorder",
-            targets: ["MeetingRecorderApp"]
+            name: "MeetingAudioCapture",
+            targets: ["MeetingAudioCaptureApp"]
         )
     ],
     targets: [
         .target(
-            name: "MeetingRecorderCore",
+            name: "MeetingAudioCaptureCore",
             swiftSettings: [
                 .swiftLanguageMode(.v5)
             ],
@@ -33,8 +33,8 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "MeetingRecorderApp",
-            dependencies: ["MeetingRecorderCore"],
+            name: "MeetingAudioCaptureApp",
+            dependencies: ["MeetingAudioCaptureCore"],
             swiftSettings: [
                 .swiftLanguageMode(.v5)
             ],
@@ -43,8 +43,8 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "MeetingRecorderCoreTests",
-            dependencies: ["MeetingRecorderCore"],
+            name: "MeetingAudioCaptureCoreTests",
+            dependencies: ["MeetingAudioCaptureCore"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .unsafeFlags(["-F", "/Library/Developer/CommandLineTools/Library/Developer/Frameworks"])

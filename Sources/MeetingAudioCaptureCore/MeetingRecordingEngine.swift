@@ -9,7 +9,7 @@ public final class MeetingRecordingEngine: NSObject {
     public var onError: ((Error) -> Void)?
     public var onFinished: (([URL]) -> Void)?
 
-    private let captureQueue = DispatchQueue(label: "app.meeting-recorder.capture")
+    private let captureQueue = DispatchQueue(label: "app.meeting-audio-capture.capture")
     private let converter = SampleBufferAudioConverter()
 
     private var state: RecorderState = .idle {

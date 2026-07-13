@@ -1,13 +1,13 @@
 import Foundation
 import Testing
-@testable import MeetingRecorderCore
+@testable import MeetingAudioCaptureCore
 
 @Suite
 struct SegmentedAudioFileWriterTests {
     @Test
     func writerSplitsLongBuffersIntoMultipleM4AFiles() throws {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("MeetingRecorderTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("MeetingAudioCaptureTests-\(UUID().uuidString)", isDirectory: true)
         defer {
             try? FileManager.default.removeItem(at: directory)
         }

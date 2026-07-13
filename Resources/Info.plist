@@ -5,13 +5,13 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>ja</string>
     <key>CFBundleExecutable</key>
-    <string>MeetingRecorder</string>
+    <string>MeetingAudioCapture</string>
     <key>CFBundleIdentifier</key>
-    <string>app.codex.meeting-recorder</string>
+    <string>app.codex.meeting-audio-capture</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Meeting Recorder</string>
+    <string>MeetingAudioCapture</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

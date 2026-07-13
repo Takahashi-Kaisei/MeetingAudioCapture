@@ -1,9 +1,9 @@
 import AppKit
 import Foundation
-import MeetingRecorderCore
+import MeetingAudioCaptureCore
 
 @main
-enum MeetingRecorderApp {
+enum MeetingAudioCaptureApp {
     private static var appDelegate: AppDelegate?
 
     static func main() {
@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func configureStatusItem() {
         statusItem.button?.title = "REC"
-        statusItem.button?.toolTip = "Meeting Recorder"
+        statusItem.button?.toolTip = "MeetingAudioCapture"
     }
 
     private func configureEngineCallbacks() {
