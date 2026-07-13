@@ -24,11 +24,19 @@ public final class MeetingRecordingEngine: NSObject {
     private var stream: SCStream?
     private var captureSession: AVCaptureSession?
     private var activeMode: RecordingMode?
+    private var isPaused = false
     private var isHandlingFailure = false
 
     public init(settings: RecordingSettings = .downloadsDefault) {
         self.settings = settings
         super.init()
+    }
+
+    private func makeMixer(for settings: RecordingSettings) -> TimelineAudioMixer {
+        TimelineAudioMixer(
+            outputSampleRate: settings.sampleRate,
+            latencySeconds: settings.mixerLatencySeconds
+        )
     }
 
     public func start(
@@ -48,15 +56,13 @@ public final class MeetingRecordingEngine: NSObject {
         var writerSettings = activeSettings
         writerSettings.sessionTitle = sessionTitle
         let writer = SegmentedAudioFileWriter(settings: writerSettings, mode: mode, startedAt: startedAt)
-        let mixer = TimelineAudioMixer(
-            outputSampleRate: activeSettings.sampleRate,
-            latencySeconds: activeSettings.mixerLatencySeconds
-        )
+        let mixer = makeMixer(for: activeSettings)
 
         await captureQueueAsync {
             self.writer = writer
             self.mixer = mixer
             self.activeMode = mode
+            self.isPaused = false
         }
 
         do {
@@ -100,6 +106,62 @@ public final class MeetingRecordingEngine: NSObject {
         }
 
         onFinished?(result.files)
+    }
+
+    public func pause() async {
+        guard case .recording(let mode, let startedAt) = state else {
+            return
+        }
+
+        let pausedAt = Date()
+
+        do {
+            try await captureQueueThrowing {
+                guard !self.isPaused else {
+                    return
+                }
+
+                guard let writer = self.writer else {
+                    throw RecorderError.writerNotStarted
+                }
+
+                if let outputs = self.mixer?.finish() {
+                    for output in outputs {
+                        do {
+                            try writer.write(output)
+                        } catch {
+                            throw RecorderError.fileWriteFailed(error.recorderDiagnosticMessage)
+                        }
+                    }
+                }
+
+                self.mixer = nil
+                self.isPaused = true
+            }
+
+            state = .paused(mode: mode, startedAt: startedAt, pausedAt: pausedAt)
+        } catch {
+            await failRecording(
+                RecorderError.classified(error, fallback: RecorderError.fileWriteFailed),
+                flushPendingAudio: false
+            )
+        }
+    }
+
+    public func resume() async {
+        guard case .paused(let mode, let startedAt, let pausedAt) = state else {
+            return
+        }
+
+        let resumedAt = Date()
+        let adjustedStartedAt = startedAt.addingTimeInterval(resumedAt.timeIntervalSince(pausedAt))
+
+        await captureQueueAsync {
+            self.mixer = self.makeMixer(for: self.settings)
+            self.isPaused = false
+        }
+
+        state = .recording(mode: mode, startedAt: adjustedStartedAt)
     }
 
     public func clearFailure() {
@@ -223,6 +285,7 @@ public final class MeetingRecordingEngine: NSObject {
             self.writer = nil
             self.mixer = nil
             self.activeMode = nil
+            self.isPaused = false
             self.isHandlingFailure = false
         }
     }
@@ -253,6 +316,7 @@ public final class MeetingRecordingEngine: NSObject {
             self.stream = nil
             self.captureSession = nil
             self.activeMode = nil
+            self.isPaused = false
             return (urls, closeError)
         }
     }
@@ -274,6 +338,10 @@ public final class MeetingRecordingEngine: NSObject {
     }
 
     private func process(sampleBuffer: CMSampleBuffer, source: AudioSourceKind) {
+        guard !isPaused else {
+            return
+        }
+
         let chunk: AudioChunk
         do {
             chunk = try converter.chunk(from: sampleBuffer, source: source)

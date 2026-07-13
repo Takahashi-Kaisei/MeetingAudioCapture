@@ -81,6 +81,7 @@ public struct MicrophoneDevice: Identifiable, Equatable, Sendable {
 public enum RecorderState: Equatable, Sendable {
     case idle
     case recording(mode: RecordingMode, startedAt: Date)
+    case paused(mode: RecordingMode, startedAt: Date, pausedAt: Date)
     case stopping
     case failed(message: String)
 }

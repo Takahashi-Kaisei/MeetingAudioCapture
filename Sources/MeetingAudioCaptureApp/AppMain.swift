@@ -140,6 +140,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .recording(_, let startedAt):
             let elapsed = RecordingElapsedTimeFormatter.string(startedAt: startedAt)
             setStatusTitle("REC \(elapsed)")
+        case .paused(_, let startedAt, let pausedAt):
+            let elapsed = RecordingElapsedTimeFormatter.string(startedAt: startedAt, now: pausedAt)
+            setStatusTitle("PAUSE \(elapsed)")
         case .stopping:
             setStatusTitle("停止中")
         case .failed:
@@ -185,6 +188,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let startStopTitle = isRecording ? "録音停止" : (isFailed ? "再試行" : "録音開始")
         menu.addItem(NSMenuItem(title: startStopTitle, action: #selector(toggleRecording), keyEquivalent: "r"))
+        if canTogglePause {
+            let pauseTitle = isPaused ? "録音再開" : "一時停止"
+            menu.addItem(NSMenuItem(title: pauseTitle, action: #selector(togglePause), keyEquivalent: "p"))
+        }
         if isFailed {
             menu.addItem(NSMenuItem(title: "エラーをクリア", action: #selector(clearRecorderError), keyEquivalent: "e"))
         }
@@ -270,10 +277,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if case .recording = recorderState {
             return true
         }
+        if case .paused = recorderState {
+            return true
+        }
         if case .stopping = recorderState {
             return true
         }
         return false
+    }
+
+    private var isPaused: Bool {
+        if case .paused = recorderState {
+            return true
+        }
+        return false
+    }
+
+    private var canTogglePause: Bool {
+        switch recorderState {
+        case .recording, .paused:
+            return true
+        case .idle, .stopping, .failed:
+            return false
+        }
     }
 
     private var outputDirectoryMenuTitle: String {
@@ -297,6 +323,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             formatter.dateStyle = .none
             let elapsed = RecordingElapsedTimeFormatter.string(startedAt: startedAt)
             return "録音中: \(mode.displayName) / 開始 \(formatter.string(from: startedAt)) / 経過 \(elapsed)"
+        case .paused(let mode, let startedAt, let pausedAt):
+            let formatter = DateFormatter()
+            formatter.timeStyle = .medium
+            formatter.dateStyle = .none
+            let elapsed = RecordingElapsedTimeFormatter.string(startedAt: startedAt, now: pausedAt)
+            return "一時停止中: \(mode.displayName) / 開始 \(formatter.string(from: startedAt)) / 経過 \(elapsed)"
         case .stopping:
             return "録音停止中..."
         case .failed(let message):
@@ -331,6 +363,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } catch {
                 showRecorderStartError(error)
             }
+        }
+    }
+
+    @objc private func togglePause() {
+        switch recorderState {
+        case .recording:
+            Task {
+                await engine.pause()
+            }
+        case .paused:
+            Task {
+                await engine.resume()
+            }
+        case .idle, .stopping, .failed:
+            break
         }
     }
 

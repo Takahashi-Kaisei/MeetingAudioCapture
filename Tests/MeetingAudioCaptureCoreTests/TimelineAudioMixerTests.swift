@@ -73,4 +73,30 @@ struct TimelineAudioMixerTests {
         expectSamples(firstOutput.first?.interleavedSamples ?? [], [0.1, 0.1, 0.2, 0.2, 0.3, 0.3])
         #expect(finalOutput.isEmpty)
     }
+
+    @Test
+    func freshMixerAfterPauseDoesNotInsertPausedSilence() throws {
+        let firstMixer = TimelineAudioMixer(outputSampleRate: 10, latencySeconds: 0, maxSilentGapSeconds: 5)
+        let first = try AudioChunk(
+            source: .system,
+            startTimeSeconds: 0,
+            sampleRate: 10,
+            channels: [[0.1, 0.2], [0.1, 0.2]]
+        )
+
+        let firstOutput = firstMixer.append(first)
+        expectSamples(firstOutput.first?.interleavedSamples ?? [], [0.1, 0.1, 0.2, 0.2])
+
+        let resumedMixer = TimelineAudioMixer(outputSampleRate: 10, latencySeconds: 0, maxSilentGapSeconds: 5)
+        let afterPause = try AudioChunk(
+            source: .microphone,
+            startTimeSeconds: 2,
+            sampleRate: 10,
+            channels: [[0.3, 0.4]]
+        )
+
+        let resumedOutput = resumedMixer.append(afterPause)
+        expectSamples(resumedOutput.first?.interleavedSamples ?? [], [0.3, 0.3, 0.4, 0.4])
+    }
+
 }
