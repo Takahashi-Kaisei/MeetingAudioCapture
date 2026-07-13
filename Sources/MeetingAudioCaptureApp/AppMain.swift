@@ -120,7 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         engine.onError = { [weak self] error in
             DispatchQueue.main.async {
-                self?.showAlert(title: "録音エラー", message: error.localizedDescription)
+                self?.showAlert(title: error.alertTitle, message: error.displayMessage)
             }
         }
 
@@ -128,7 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 self?.latestFiles = files
                 self?.showAlert(
-                    title: "録音を保存しました",
+                    title: self?.finishedAlertTitle ?? "録音を保存しました",
                     message: files.isEmpty ? "保存されたファイルはありません。" : files.map(\.lastPathComponent).joined(separator: "\n")
                 )
             }
@@ -183,8 +183,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(status)
         menu.addItem(NSMenuItem.separator())
 
-        let startStopTitle = isRecording ? "録音停止" : "録音開始"
+        let startStopTitle = isRecording ? "録音停止" : (isFailed ? "再試行" : "録音開始")
         menu.addItem(NSMenuItem(title: startStopTitle, action: #selector(toggleRecording), keyEquivalent: "r"))
+        if isFailed {
+            menu.addItem(NSMenuItem(title: "エラーをクリア", action: #selector(clearRecorderError), keyEquivalent: "e"))
+        }
         menu.addItem(NSMenuItem.separator())
 
         let modeMenuItem = NSMenuItem(title: "録音モード", action: nil, keyEquivalent: "")
@@ -252,6 +255,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = menu
     }
 
+    private var isFailed: Bool {
+        if case .failed = recorderState {
+            return true
+        }
+        return false
+    }
+
+    private var finishedAlertTitle: String {
+        isFailed ? "途中まで保存しました" : "録音を保存しました"
+    }
+
     private var isRecording: Bool {
         if case .recording = recorderState {
             return true
@@ -286,7 +300,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .stopping:
             return "録音停止中..."
         case .failed(let message):
-            return "エラー: \(message)"
+            let firstLine = message.components(separatedBy: "\n").first ?? message
+            return "エラー: \(firstLine)"
         }
     }
 
@@ -298,10 +313,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        let shouldClearFailure = isFailed
         let recordingSettings = recordingSettingsForCurrentSelection()
 
         Task {
             do {
+                if shouldClearFailure {
+                    engine.clearFailure()
+                }
                 try await ensurePermissions(for: selectedMode)
                 try await engine.start(
                     mode: selectedMode,
@@ -310,9 +329,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     recordingSettings: recordingSettings
                 )
             } catch {
-                showAlert(title: "録音を開始できません", message: error.localizedDescription)
+                showRecorderStartError(error)
             }
         }
+    }
+
+    private func showRecorderStartError(_ error: Error) {
+        if let recorderError = error as? RecorderError {
+            showAlert(title: recorderError.alertTitle, message: recorderError.displayMessage)
+            return
+        }
+
+        showAlert(title: "録音を開始できません", message: error.localizedDescription)
+    }
+
+    @objc private func clearRecorderError() {
+        engine.clearFailure()
     }
 
     @objc private func selectMode(_ sender: NSMenuItem) {

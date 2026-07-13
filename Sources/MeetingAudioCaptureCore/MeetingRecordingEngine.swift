@@ -6,7 +6,7 @@ import Foundation
 @available(macOS 15.0, *)
 public final class MeetingRecordingEngine: NSObject {
     public var onStateChange: ((RecorderState) -> Void)?
-    public var onError: ((Error) -> Void)?
+    public var onError: ((RecorderError) -> Void)?
     public var onFinished: (([URL]) -> Void)?
 
     private let captureQueue = DispatchQueue(label: "app.meeting-audio-capture.capture")
@@ -24,6 +24,7 @@ public final class MeetingRecordingEngine: NSObject {
     private var stream: SCStream?
     private var captureSession: AVCaptureSession?
     private var activeMode: RecordingMode?
+    private var isHandlingFailure = false
 
     public init(settings: RecordingSettings = .downloadsDefault) {
         self.settings = settings
@@ -67,9 +68,10 @@ public final class MeetingRecordingEngine: NSObject {
             }
             state = .recording(mode: mode, startedAt: startedAt)
         } catch {
+            let recorderError = RecorderError.classified(error, fallback: RecorderError.screenCaptureFailed)
             await cleanupAfterFailedStart()
-            state = .failed(message: error.localizedDescription)
-            throw error
+            state = .failed(message: recorderError.statusMessage)
+            throw recorderError
         }
     }
 
@@ -80,38 +82,41 @@ public final class MeetingRecordingEngine: NSObject {
 
         state = .stopping
 
+        var stopError: RecorderError?
         if let stream {
-            await stopScreenCapture(stream)
+            stopError = await stopScreenCapture(stream)
         }
 
         await stopMicrophoneOnlyCapture()
 
-        let completedFiles = await captureQueueAsync {
-            if let outputs = self.mixer?.finish() {
-                for output in outputs {
-                    do {
-                        try self.writer?.write(output)
-                    } catch {
-                        self.onError?(error)
-                    }
-                }
-            }
-            self.writer?.close()
-            let urls = self.writer?.completedFileURLs ?? []
-            self.writer = nil
-            self.mixer = nil
-            self.stream = nil
-            self.captureSession = nil
-            self.activeMode = nil
-            return urls
+        let result = await closeRecording(flushPendingAudio: true)
+        let finalError = stopError ?? result.error
+
+        if let finalError {
+            state = .failed(message: finalError.statusMessage)
+            onError?(finalError)
+        } else {
+            state = .idle
         }
 
+        onFinished?(result.files)
+    }
+
+    public func clearFailure() {
+        guard case .failed = state else {
+            return
+        }
         state = .idle
-        onFinished?(completedFiles)
     }
 
     private func startScreenCapture(microphoneDeviceID: String?) async throws {
-        let content = try await shareableContent()
+        let content: SCShareableContent
+        do {
+            content = try await shareableContent()
+        } catch {
+            throw RecorderError.classified(error, fallback: RecorderError.screenCaptureFailed)
+        }
+
         guard let display = content.displays.first else {
             throw RecorderError.noDisplayAvailable
         }
@@ -136,14 +141,18 @@ public final class MeetingRecordingEngine: NSObject {
         }
 
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
-        try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: captureQueue)
-        try stream.addStreamOutput(self, type: .microphone, sampleHandlerQueue: captureQueue)
+        do {
+            try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: captureQueue)
+            try stream.addStreamOutput(self, type: .microphone, sampleHandlerQueue: captureQueue)
+        } catch {
+            throw RecorderError.screenCaptureFailed(error.recorderDiagnosticMessage)
+        }
 
         self.stream = stream
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             stream.startCapture { error in
                 if let error {
-                    continuation.resume(throwing: error)
+                    continuation.resume(throwing: RecorderError.screenCaptureFailed(error.recorderDiagnosticMessage))
                 } else {
                     continuation.resume()
                 }
@@ -152,37 +161,45 @@ public final class MeetingRecordingEngine: NSObject {
     }
 
     private func startMicrophoneOnlyCapture(microphoneDeviceID: String?) async throws {
-        try await captureQueueThrowing {
-            guard let device = MicrophoneDeviceProvider.captureDevice(for: microphoneDeviceID) else {
-                throw RecorderError.noMicrophoneAvailable
+        do {
+            try await captureQueueThrowing {
+                guard let device = MicrophoneDeviceProvider.captureDevice(for: microphoneDeviceID) else {
+                    throw RecorderError.noMicrophoneAvailable
+                }
+
+                let session = AVCaptureSession()
+                session.beginConfiguration()
+
+                let input = try AVCaptureDeviceInput(device: device)
+                guard session.canAddInput(input) else {
+                    throw RecorderError.noMicrophoneAvailable
+                }
+                session.addInput(input)
+
+                let output = AVCaptureAudioDataOutput()
+                output.setSampleBufferDelegate(self, queue: self.captureQueue)
+                guard session.canAddOutput(output) else {
+                    throw RecorderError.noMicrophoneAvailable
+                }
+                session.addOutput(output)
+
+                session.commitConfiguration()
+                self.captureSession = session
+                session.startRunning()
             }
-
-            let session = AVCaptureSession()
-            session.beginConfiguration()
-
-            let input = try AVCaptureDeviceInput(device: device)
-            guard session.canAddInput(input) else {
-                throw RecorderError.noMicrophoneAvailable
-            }
-            session.addInput(input)
-
-            let output = AVCaptureAudioDataOutput()
-            output.setSampleBufferDelegate(self, queue: self.captureQueue)
-            guard session.canAddOutput(output) else {
-                throw RecorderError.noMicrophoneAvailable
-            }
-            session.addOutput(output)
-
-            session.commitConfiguration()
-            self.captureSession = session
-            session.startRunning()
+        } catch {
+            throw RecorderError.classified(error, fallback: RecorderError.microphoneCaptureFailed)
         }
     }
 
-    private func stopScreenCapture(_ stream: SCStream) async {
+    private func stopScreenCapture(_ stream: SCStream) async -> RecorderError? {
         await withCheckedContinuation { continuation in
-            stream.stopCapture { _ in
-                continuation.resume()
+            stream.stopCapture { error in
+                if let error {
+                    continuation.resume(returning: RecorderError.stopFailed(error.recorderDiagnosticMessage))
+                } else {
+                    continuation.resume(returning: nil)
+                }
             }
         }
     }
@@ -194,6 +211,10 @@ public final class MeetingRecordingEngine: NSObject {
     }
 
     private func cleanupAfterFailedStart() async {
+        if let stream {
+            _ = await stopScreenCapture(stream)
+        }
+
         await captureQueueAsync {
             self.captureSession?.stopRunning()
             self.captureSession = nil
@@ -202,6 +223,37 @@ public final class MeetingRecordingEngine: NSObject {
             self.writer = nil
             self.mixer = nil
             self.activeMode = nil
+            self.isHandlingFailure = false
+        }
+    }
+
+    private func closeRecording(flushPendingAudio: Bool) async -> (files: [URL], error: RecorderError?) {
+        await captureQueueAsync {
+            var closeError: RecorderError?
+
+            if flushPendingAudio, let outputs = self.mixer?.finish() {
+                guard let writer = self.writer else {
+                    closeError = .writerNotStarted
+                    return ([], closeError)
+                }
+
+                for output in outputs {
+                    do {
+                        try writer.write(output)
+                    } catch {
+                        closeError = closeError ?? RecorderError.fileWriteFailed(error.recorderDiagnosticMessage)
+                    }
+                }
+            }
+
+            self.writer?.close()
+            let urls = self.writer?.completedFileURLs ?? []
+            self.writer = nil
+            self.mixer = nil
+            self.stream = nil
+            self.captureSession = nil
+            self.activeMode = nil
+            return (urls, closeError)
         }
     }
 
@@ -209,7 +261,7 @@ public final class MeetingRecordingEngine: NSObject {
         try await withCheckedThrowingContinuation { continuation in
             SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { content, error in
                 if let error {
-                    continuation.resume(throwing: error)
+                    continuation.resume(throwing: RecorderError.screenCaptureFailed(error.recorderDiagnosticMessage))
                     return
                 }
                 guard let content else {
@@ -222,14 +274,69 @@ public final class MeetingRecordingEngine: NSObject {
     }
 
     private func process(sampleBuffer: CMSampleBuffer, source: AudioSourceKind) {
+        let chunk: AudioChunk
         do {
-            let chunk = try converter.chunk(from: sampleBuffer, source: source)
-            let outputs = mixer?.append(chunk) ?? []
-            for output in outputs {
-                try writer?.write(output)
-            }
+            chunk = try converter.chunk(from: sampleBuffer, source: source)
         } catch {
-            onError?(error)
+            handleRuntimeFailure(
+                RecorderError.classified(error, fallback: RecorderError.audioConversionFailed),
+                flushPendingAudio: true
+            )
+            return
+        }
+
+        let outputs = mixer?.append(chunk) ?? []
+        for output in outputs {
+            guard let writer else {
+                handleRuntimeFailure(.writerNotStarted, flushPendingAudio: false)
+                return
+            }
+
+            do {
+                try writer.write(output)
+            } catch {
+                handleRuntimeFailure(
+                    RecorderError.classified(error, fallback: RecorderError.fileWriteFailed),
+                    flushPendingAudio: false
+                )
+                return
+            }
+        }
+    }
+
+    private func handleRuntimeFailure(_ error: RecorderError, flushPendingAudio: Bool) {
+        Task {
+            await failRecording(error, flushPendingAudio: flushPendingAudio)
+        }
+    }
+
+    private func failRecording(_ error: RecorderError, flushPendingAudio: Bool) async {
+        guard !isHandlingFailure else {
+            return
+        }
+        isHandlingFailure = true
+
+        guard state != .idle else {
+            isHandlingFailure = false
+            return
+        }
+
+        state = .stopping
+
+        if let stream {
+            _ = await stopScreenCapture(stream)
+        }
+        await stopMicrophoneOnlyCapture()
+
+        let result = await closeRecording(flushPendingAudio: flushPendingAudio)
+        let finalError = result.error ?? error
+
+        state = .failed(message: finalError.statusMessage)
+        isHandlingFailure = false
+        onError?(finalError)
+
+        if !result.files.isEmpty {
+            onFinished?(result.files)
         }
     }
 
@@ -268,7 +375,7 @@ extension MeetingRecordingEngine: SCStreamOutput, SCStreamDelegate {
     }
 
     public func stream(_ stream: SCStream, didStopWithError error: Error) {
-        onError?(error)
+        handleRuntimeFailure(.captureInterrupted(error.recorderDiagnosticMessage), flushPendingAudio: true)
     }
 }
 
