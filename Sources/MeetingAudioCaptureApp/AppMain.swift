@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var selectedMicrophoneID: String?
     private var recorderState: RecorderState = .idle
     private var latestFiles: [URL] = []
+    private var statusRefreshTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureStatusItem()
@@ -32,9 +33,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildMenu()
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        stopStatusRefreshTimer()
+    }
+
     private func configureStatusItem() {
-        statusItem.button?.title = "REC"
+        setStatusTitle("REC")
         statusItem.button?.toolTip = "MeetingAudioCapture"
+    }
+
+    private func setStatusTitle(_ title: String) {
+        statusItem.button?.title = title
+
+        let font = statusItem.button?.font ?? NSFont.menuBarFont(ofSize: 0)
+        let width = (title as NSString).size(withAttributes: [NSAttributedString.Key.font: font]).width
+        statusItem.length = max(44, ceil(width) + 24)
     }
 
     private func configureEngineCallbacks() {
@@ -42,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 self?.recorderState = state
                 self?.updateStatusTitle()
+                self?.syncStatusRefreshTimer()
                 self?.rebuildMenu()
             }
         }
@@ -65,15 +79,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateStatusTitle() {
         switch recorderState {
-        case .recording:
-            statusItem.button?.title = "● REC"
+        case .recording(_, let startedAt):
+            let elapsed = RecordingElapsedTimeFormatter.string(startedAt: startedAt)
+            setStatusTitle("REC \(elapsed)")
         case .stopping:
-            statusItem.button?.title = "停止中"
+            setStatusTitle("停止中")
         case .failed:
-            statusItem.button?.title = "ERR"
+            setStatusTitle("ERR")
         case .idle:
-            statusItem.button?.title = "REC"
+            setStatusTitle("REC")
         }
+    }
+
+    private func syncStatusRefreshTimer() {
+        guard case .recording = recorderState else {
+            stopStatusRefreshTimer()
+            return
+        }
+
+        guard statusRefreshTimer == nil else {
+            return
+        }
+
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self else {
+                return
+            }
+            self.updateStatusTitle()
+            self.rebuildMenu()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        statusRefreshTimer = timer
+    }
+
+    private func stopStatusRefreshTimer() {
+        statusRefreshTimer?.invalidate()
+        statusRefreshTimer = nil
     }
 
     private func rebuildMenu() {
@@ -145,7 +186,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let formatter = DateFormatter()
             formatter.timeStyle = .medium
             formatter.dateStyle = .none
-            return "録音中: \(mode.displayName) \(formatter.string(from: startedAt))開始"
+            let elapsed = RecordingElapsedTimeFormatter.string(startedAt: startedAt)
+            return "録音中: \(mode.displayName) / 開始 \(formatter.string(from: startedAt)) / 経過 \(elapsed)"
         case .stopping:
             return "録音停止中..."
         case .failed(let message):
