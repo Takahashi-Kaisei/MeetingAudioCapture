@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let engine = MeetingRecordingEngine()
     private let outputDirectoryStore = OutputDirectoryStore()
     private let audioOutputFormatStore = AudioOutputFormatStore()
+    private let segmentMergePreferenceStore = SegmentMergePreferenceStore()
 
     private var selectedMode: RecordingMode = .onlineMeeting
     private var selectedMicrophoneID: String?
@@ -29,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var latestFiles: [URL] = []
     private var selectedOutputDirectory = OutputDirectoryStore.downloadsDirectory
     private var selectedOutputFormat: AudioOutputFormat = .m4a
+    private var mergeSegmentsAfterRecording = false
     private var recordingTitle = ""
     private var statusRefreshTimer: Timer?
 
@@ -36,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configureStatusItem()
         loadOutputDirectory()
         loadOutputFormat()
+        loadSegmentMergePreference()
         configureEngineCallbacks()
         rebuildMenu()
     }
@@ -62,9 +65,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         selectedOutputFormat = audioOutputFormatStore.loadOutputFormat()
     }
 
+    private func loadSegmentMergePreference() {
+        mergeSegmentsAfterRecording = segmentMergePreferenceStore.loadMergeSegmentsAfterRecording()
+    }
+
     private func recordingSettingsForCurrentSelection() -> RecordingSettings {
         let outputDirectory = resolvedOutputDirectoryForRecording()
-        return RecordingSettings(outputDirectory: outputDirectory, outputFormat: selectedOutputFormat)
+        return RecordingSettings(
+            outputDirectory: outputDirectory,
+            outputFormat: selectedOutputFormat,
+            mergeSegmentsAfterRecording: mergeSegmentsAfterRecording
+        )
     }
 
     private func resolvedOutputDirectoryForRecording() -> URL {
@@ -267,6 +278,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         outputFormatMenuItem.submenu = outputFormatMenu
         menu.addItem(outputFormatMenuItem)
 
+        let mergeSegmentsItem = NSMenuItem(title: "停止後に分割ファイルを結合", action: #selector(toggleSegmentMergePreference), keyEquivalent: "")
+        mergeSegmentsItem.state = mergeSegmentsAfterRecording ? .on : .off
+        mergeSegmentsItem.isEnabled = !isRecording
+        menu.addItem(mergeSegmentsItem)
+
         let hint = NSMenuItem(title: "ASR品質重視ならイヤホン推奨", action: nil, keyEquivalent: "")
         hint.isEnabled = false
         menu.addItem(hint)
@@ -434,6 +450,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         selectedOutputFormat = outputFormat
         audioOutputFormatStore.saveOutputFormat(outputFormat)
+        rebuildMenu()
+    }
+
+    @objc private func toggleSegmentMergePreference() {
+        mergeSegmentsAfterRecording.toggle()
+        segmentMergePreferenceStore.saveMergeSegmentsAfterRecording(mergeSegmentsAfterRecording)
         rebuildMenu()
     }
 

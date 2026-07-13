@@ -11,6 +11,7 @@ public final class MeetingRecordingEngine: NSObject {
 
     private let captureQueue = DispatchQueue(label: "app.meeting-audio-capture.capture")
     private let converter = SampleBufferAudioConverter()
+    private let segmentMerger = AudioSegmentMerger()
 
     private var state: RecorderState = .idle {
         didSet {
@@ -96,16 +97,22 @@ public final class MeetingRecordingEngine: NSObject {
         await stopMicrophoneOnlyCapture()
 
         let result = await closeRecording(flushPendingAudio: true)
+        var files = result.files
         let finalError = stopError ?? result.error
 
         if let finalError {
             state = .failed(message: finalError.statusMessage)
             onError?(finalError)
         } else {
+            do {
+                files = try await mergeSegmentsIfNeeded(files)
+            } catch {
+                onError?(RecorderError.classified(error, fallback: RecorderError.segmentMergeFailed))
+            }
             state = .idle
         }
 
-        onFinished?(result.files)
+        onFinished?(files)
     }
 
     public func pause() async {
@@ -288,6 +295,21 @@ public final class MeetingRecordingEngine: NSObject {
             self.isPaused = false
             self.isHandlingFailure = false
         }
+    }
+
+    private func mergeSegmentsIfNeeded(_ files: [URL]) async throws -> [URL] {
+        guard settings.mergeSegmentsAfterRecording else {
+            return files
+        }
+
+        guard let mergedURL = try await segmentMerger.merge(
+            segments: files,
+            outputFormat: settings.outputFormat,
+            deletesSourceSegmentsOnSuccess: true
+        ) else {
+            return files
+        }
+        return [mergedURL]
     }
 
     private func closeRecording(flushPendingAudio: Bool) async -> (files: [URL], error: RecorderError?) {
