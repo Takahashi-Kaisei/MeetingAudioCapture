@@ -39,7 +39,7 @@ public final class SegmentedAudioFileWriter {
     private let bitRate: Int
     private let segmentFrameLimit: Int64
     private let fileManager: FileManager
-    private let baseName: String
+    private let filenameGenerator: RecordingFilenameGenerator
 
     private var currentFile: AVAudioFile?
     private var currentFileURL: URL?
@@ -48,6 +48,7 @@ public final class SegmentedAudioFileWriter {
 
     public init(
         settings: RecordingSettings,
+        mode: RecordingMode,
         startedAt: Date = Date(),
         fileManager: FileManager = .default
     ) {
@@ -57,10 +58,11 @@ public final class SegmentedAudioFileWriter {
         self.segmentFrameLimit = max(1, Int64((settings.segmentDurationSeconds * settings.sampleRate).rounded()))
         self.fileManager = fileManager
 
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-        self.baseName = "meeting-\(formatter.string(from: startedAt))"
+        self.filenameGenerator = RecordingFilenameGenerator(
+            startedAt: startedAt,
+            mode: mode,
+            sessionTitle: settings.sessionTitle
+        )
     }
 
     public func write(_ buffer: StereoPCMBuffer) throws {
@@ -96,8 +98,8 @@ public final class SegmentedAudioFileWriter {
     private func startNextSegment() throws {
         try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 
-        let segmentSuffix = String(format: "part%03d", segmentIndex)
-        let fileURL = outputDirectory.appendingPathComponent("\(baseName)-\(segmentSuffix).m4a")
+        let fileName = filenameGenerator.fileName(segmentIndex: segmentIndex)
+        let fileURL = outputDirectory.appendingPathComponent(fileName)
         let settings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
             AVSampleRateKey: sampleRate,

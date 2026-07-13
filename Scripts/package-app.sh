@@ -21,4 +21,8 @@ cp "$ROOT_DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
 
 chmod +x "$MACOS_DIR/MeetingAudioCapture"
 
+if command -v codesign >/dev/null 2>&1; then
+    codesign --force --deep --sign - "$APP_DIR"
+fi
+
 echo "$APP_DIR"

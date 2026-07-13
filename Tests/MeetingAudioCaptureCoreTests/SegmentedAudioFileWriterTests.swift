@@ -20,6 +20,7 @@ struct SegmentedAudioFileWriterTests {
         )
         let writer = SegmentedAudioFileWriter(
             settings: settings,
+            mode: .onlineMeeting,
             startedAt: Date(timeIntervalSince1970: 0)
         )
 

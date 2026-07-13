@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var selectedMicrophoneID: String?
     private var recorderState: RecorderState = .idle
     private var latestFiles: [URL] = []
+    private var recordingTitle = ""
     private var statusRefreshTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -153,6 +154,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         microphoneMenuItem.submenu = microphoneMenu
         menu.addItem(microphoneMenuItem)
 
+        menu.addItem(NSMenuItem.separator())
+        let titleSummary = NSMenuItem(title: recordingTitleMenuTitle, action: nil, keyEquivalent: "")
+        titleSummary.isEnabled = false
+        menu.addItem(titleSummary)
+
+        let setTitleItem = NSMenuItem(title: "録音タイトルを設定...", action: #selector(setRecordingTitle), keyEquivalent: "t")
+        setTitleItem.isEnabled = !isRecording
+        menu.addItem(setTitleItem)
+
+        if RecordingFilenameGenerator.sanitizedTitle(recordingTitle) != nil {
+            let clearTitleItem = NSMenuItem(title: "録音タイトルをクリア", action: #selector(clearRecordingTitle), keyEquivalent: "")
+            clearTitleItem.isEnabled = !isRecording
+            menu.addItem(clearTitleItem)
+        }
+
         let hint = NSMenuItem(title: "ASR品質重視ならイヤホン推奨", action: nil, keyEquivalent: "")
         hint.isEnabled = false
         menu.addItem(hint)
@@ -176,6 +192,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return true
         }
         return false
+    }
+
+    private var recordingTitleMenuTitle: String {
+        guard let title = RecordingFilenameGenerator.sanitizedTitle(recordingTitle) else {
+            return "録音タイトル: 未設定"
+        }
+        return "録音タイトル: \(title)"
     }
 
     private var statusText: String {
@@ -206,7 +229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task {
             do {
                 try await ensurePermissions(for: selectedMode)
-                try await engine.start(mode: selectedMode, microphoneDeviceID: selectedMicrophoneID)
+                try await engine.start(mode: selectedMode, microphoneDeviceID: selectedMicrophoneID, sessionTitle: recordingTitle)
             } catch {
                 showAlert(title: "録音を開始できません", message: error.localizedDescription)
             }
@@ -224,6 +247,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func selectMicrophone(_ sender: NSMenuItem) {
         selectedMicrophoneID = sender.representedObject as? String
+        rebuildMenu()
+    }
+
+    @objc private func setRecordingTitle() {
+        let input = NSTextField(string: recordingTitle)
+        input.placeholderString = "例: 週次定例"
+        input.frame = NSRect(x: 0, y: 0, width: 320, height: 24)
+
+        let alert = NSAlert()
+        alert.messageText = "録音タイトル"
+        alert.informativeText = "次回開始する録音のファイル名に使います。"
+        alert.accessoryView = input
+        alert.addButton(withTitle: "保存")
+        alert.addButton(withTitle: "キャンセル")
+        alert.window.initialFirstResponder = input
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            recordingTitle = input.stringValue
+            rebuildMenu()
+        }
+    }
+
+    @objc private func clearRecordingTitle() {
+        recordingTitle = ""
         rebuildMenu()
     }
 

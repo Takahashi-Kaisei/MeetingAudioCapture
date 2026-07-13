@@ -16,6 +16,15 @@ public enum RecordingMode: String, CaseIterable, Sendable {
     public var capturesSystemAudio: Bool {
         self == .onlineMeeting
     }
+
+    public var filenameComponent: String {
+        switch self {
+        case .onlineMeeting:
+            return "online-meeting"
+        case .inPerson:
+            return "in-person"
+        }
+    }
 }
 
 public enum AudioSourceKind: String, Sendable {
@@ -30,6 +39,7 @@ public struct RecordingSettings: Sendable {
     public var bitRate: Int
     public var segmentDurationSeconds: TimeInterval
     public var mixerLatencySeconds: TimeInterval
+    public var sessionTitle: String?
 
     public init(
         outputDirectory: URL,
@@ -37,7 +47,8 @@ public struct RecordingSettings: Sendable {
         channelCount: Int = 2,
         bitRate: Int = 192_000,
         segmentDurationSeconds: TimeInterval = 30 * 60,
-        mixerLatencySeconds: TimeInterval = 0.35
+        mixerLatencySeconds: TimeInterval = 0.35,
+        sessionTitle: String? = nil
     ) {
         self.outputDirectory = outputDirectory
         self.sampleRate = sampleRate
@@ -45,6 +56,7 @@ public struct RecordingSettings: Sendable {
         self.bitRate = bitRate
         self.segmentDurationSeconds = segmentDurationSeconds
         self.mixerLatencySeconds = mixerLatencySeconds
+        self.sessionTitle = sessionTitle
     }
 
     public static var downloadsDefault: RecordingSettings {

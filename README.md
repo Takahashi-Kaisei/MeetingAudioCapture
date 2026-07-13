@@ -23,6 +23,12 @@ Scripts/package-app.sh
 open .build/release/MeetingAudioCapture.app
 ```
 
+権限確認を安定させたい開発時は、`/Applications` にインストールして起動します。
+
+```sh
+Scripts/install-app.sh
+```
+
 ## 使い方
 
 1. メニューバーの `REC` から録音モードを選びます。
